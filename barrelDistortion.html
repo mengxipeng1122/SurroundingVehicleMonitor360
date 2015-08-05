@@ -24,13 +24,8 @@ function main() {
     canvas.width = image.width;
     canvas.height= image.height;
     render(image);
-
-    var centroidX = document.getElementById("centroidX");
-    centroidX.max = image.width;
-
-    var centroidY = document.getElementById("centroidY");
-    centroidX.max = image.height;
   }
+
 }
 
 function render(image) {
@@ -81,11 +76,54 @@ function render(image) {
   gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
 
 
+  function reDrawCanvas()
+  {
+    // set the centroid 
+    var centroidLocation = gl.getUniformLocation(program, "centroid");
+    var centroidX = document.getElementById('centroidX');
+    var centroidY = document.getElementById('centroidY');
+    gl.uniform2f(centroidLocation, centroidX.value, centroidY.value);
+
+    var textureSizeLocation = gl.getUniformLocation(program, "textureSize");
+    gl.uniform2f(textureSizeLocation, canvas.width, canvas.height);
+
+    var distortionCoefficientLocation=gl.getUniformLocation(program, 'distortionCoefficient');
+    var distortionCoefficient = document.getElementById('distortionCoefficient');
+    gl.uniform1f(distortionCoefficientLocation, distortionCoefficient.value);
+
+    setRectangle(gl, 0, 0, image.width, image.height);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+  }
+
+
+  var centroidX = document.getElementById("centroidX");
+  centroidX.max = image.width;
+  centroidX.value = image.width/2;
+  $('#centroidX').change( function() { reDrawCanvas(); });
+
+  var centroidY = document.getElementById("centroidY");
+  centroidY.max = image.height;
+  centroidY.value = image.height/2;
+  $('#centroidY').change( function() { reDrawCanvas(); });
+
   // set the centroid 
   var centroidLocation = gl.getUniformLocation(program, "centroid");
   var centroidX = document.getElementById('centroidX');
   var centroidY = document.getElementById('centroidY');
   gl.uniform2f(centroidLocation, centroidX.value, centroidY.value);
+
+  // set texture size
+  var textureSizeLocation = gl.getUniformLocation(program, "textureSize");
+  gl.uniform2f(textureSizeLocation, canvas.width, canvas.height);
+
+  // set distortion efficient
+  var distortionCoefficientLocation = gl.getUniformLocation(program, "distortionCoefficient");
+  var distortionCoefficient = document.getElementById('distortionCoefficient');
+  $('#distortionCoefficient').change( function() { reDrawCanvas(); });
+
+  gl.uniform1f(distortionCoefficientLocation, distortionCoefficient.value);
+
 
   // Create a buffer for the position of the rectangle corners.
   var positionBuffer = gl.createBuffer();
@@ -128,7 +166,6 @@ uniform vec2 u_resolution;
 
 varying vec2 v_texCoord;
 
-varying vec2 centroid;
 
 void main() {
    // convert the rectangle from pixels to 0.0 to 1.0
@@ -149,25 +186,70 @@ void main() {
 </script>
 <!-- fragment shader -->
 <script id="2d-fragment-shader" type="x-shader/x-fragment">
-precision mediump float;
+  precision highp float;
+  
+  // our texture
+  uniform sampler2D u_image;
+  
+  // input texture size
+  uniform vec2 textureSize; 
+  
+  // centroid
+  uniform vec2 centroid;
 
-// our texture
-uniform sampler2D u_image;
+  // distortion coefficient 
+  uniform float distortionCoefficient;
+  
+  // the texCoords passed in from the vertex shader.
+  varying vec2 v_texCoord;
+  
+  // const variables
+  const float centroidRadius = 10.;
+ 
 
-// the texCoords passed in from the vertex shader.
-varying vec2 v_texCoord;
+  // get undistorted position
+  vec2 getUndistortedPosition( vec2 undistortedPosition, vec2 undistortedCetrnoid, vec2 distortedCentroid, float distortionCoefficient)
+  {
+    vec2 distortedPosition;
 
-void main() {
-   gl_FragColor = texture2D(u_image, v_texCoord).rgba;
-}
+    float undistortedRadius = distance(undistortedPosition, undistortedCetrnoid);
+    float distortedRadius = atan(undistortedRadius/distortionCoefficient)*distortionCoefficient;
+    float scale = distortedRadius/undistortedRadius;
+
+    distortedPosition = distortedCentroid+(undistortedPosition-undistortedCetrnoid)*scale;
+
+    return distortedPosition;
+  }
+  
+  
+  
+  void main() {
+      // draw the circle 
+      vec2 texturePosition =vec2( v_texCoord.x * textureSize.x, v_texCoord.y*textureSize.y);
+  
+      // show centroid
+      if (distance(texturePosition, centroid )<centroidRadius)
+      {
+        vec3 textureColor = texture2D(u_image, v_texCoord).rgb;
+        gl_FragColor = vec4( vec3(1.)-textureColor, 1.);
+        return ;
+      }
+      vec2 undistortedPosition = getUndistortedPosition( texturePosition, textureSize/2., centroid, distortionCoefficient);
+     
+     //gl_FragColor = texture2D(u_image, v_texCoord).rgba;
+     gl_FragColor = texture2D(u_image, undistortedPosition/textureSize).rgba;
+     //gl_FragColor = vec4( vec3(distortionCoefficient/400.), 1.);
+
+  }
 </script>
 </head>
 <body>
+
 <canvas id="canvas" width="400" height="300"></canvas>
 
   <div data-role="content"> <label for="centroidX">Centroid X coordinate :</label> <input type="range" name="centroidX" id="centroidX" value="50" min="0" max="100"> </div>
   <div data-role="context"> <label for="centroidY">Centroid Y coordinate :</label> <input type="range" name="centroidY" id="centroidY" value="50" min="0" max="100"> </div>
-  <div data-role="context"> <label for="distortionCoefficient">Distortion Coefficient:</label> <input type="range" name="distortionCoefficient" id="distortionCoefficient" value="227" min="50" max="500"> </div>
+  <div data-role="context"> <label for="distortionCoefficient">Distortion Coefficient:</label> <input type="range" name="distortionCoefficient" id="distortionCoefficient" value="227" min="50" max="500", step=".5"> </div>
 
 </body>
 </html>
