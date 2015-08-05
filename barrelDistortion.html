@@ -3,7 +3,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>WebGL - testImage</title>
+<title>Barrel distortion test</title>
 <link rel="stylesheet" href="css/jquery.mobile.structure-1.0.1.css" />
 <link rel="stylesheet" href="css/jquery.mobile-1.0.1.css" />
 <link type="text/css" href="css/webgl-tutorials.css" rel="stylesheet" />
@@ -11,7 +11,7 @@
 <script src="js/jquery.mobile-1.0.1.min.js"></script>
 <script src="js/webgl-utils.js"></script>
 <script>
-"use strict";
+//"use strict";
 
 window.onload = main;
 
@@ -21,7 +21,7 @@ function main() {
   image.onload = function() {
 
     var canvas = document.getElementById("canvas");
-    canvas.width = image.width;
+    canvas.width = image.width * 2;
     canvas.height= image.height;
     render(image);
   }
@@ -73,8 +73,7 @@ function render(image) {
   var resolutionLocation = gl.getUniformLocation(program, "u_resolution");
 
   // set the resolution
-  gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
-
+  gl.uniform2f(resolutionLocation, canvas.width/2, canvas.height);
 
   function reDrawCanvas()
   {
@@ -85,11 +84,15 @@ function render(image) {
     gl.uniform2f(centroidLocation, centroidX.value, centroidY.value);
 
     var textureSizeLocation = gl.getUniformLocation(program, "textureSize");
-    gl.uniform2f(textureSizeLocation, canvas.width, canvas.height);
+    gl.uniform2f(textureSizeLocation, image.width, image.height);
 
     var distortionCoefficientLocation=gl.getUniformLocation(program, 'distortionCoefficient');
     var distortionCoefficient = document.getElementById('distortionCoefficient');
     gl.uniform1f(distortionCoefficientLocation, distortionCoefficient.value);
+
+    var resultZoomLocation=gl.getUniformLocation(program, 'resultZoom');
+    var resultZoom = document.getElementById('resultZoom');
+    gl.uniform1f(resultZoomLocation, resultZoom.value);
 
     setRectangle(gl, 0, 0, image.width, image.height);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
@@ -121,8 +124,14 @@ function render(image) {
   var distortionCoefficientLocation = gl.getUniformLocation(program, "distortionCoefficient");
   var distortionCoefficient = document.getElementById('distortionCoefficient');
   $('#distortionCoefficient').change( function() { reDrawCanvas(); });
-
   gl.uniform1f(distortionCoefficientLocation, distortionCoefficient.value);
+
+  // set result zoom scale 
+  var resultZoomLocation = gl.getUniformLocation(program, "resultZoom");
+  var resultZoom = document.getElementById('resultZoom');
+  $('#resultZoom').change( function() { reDrawCanvas(); });
+  gl.uniform1f(resultZoomLocation, resultZoom.value);
+
 
 
   // Create a buffer for the position of the rectangle corners.
@@ -136,6 +145,8 @@ function render(image) {
 
   // Draw the rectangle.
   gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+  reDrawCanvas();
 }
 
 function randomInt(range) {
@@ -187,6 +198,7 @@ void main() {
 <!-- fragment shader -->
 <script id="2d-fragment-shader" type="x-shader/x-fragment">
   precision highp float;
+  //precision mediump float;
   
   // our texture
   uniform sampler2D u_image;
@@ -200,6 +212,9 @@ void main() {
   // distortion coefficient 
   uniform float distortionCoefficient;
   
+  // result zoom scale variable
+  uniform float resultZoom;
+  
   // the texCoords passed in from the vertex shader.
   varying vec2 v_texCoord;
   
@@ -208,11 +223,14 @@ void main() {
  
 
   // get undistorted position
-  vec2 getUndistortedPosition( vec2 undistortedPosition, vec2 undistortedCetrnoid, vec2 distortedCentroid, float distortionCoefficient)
+  vec2 getUndistortedPosition( vec2 undistortedPosition, vec2 undistortedCetrnoid, vec2 distortedCentroid, float distortionCoefficient, float resultZoom)
   {
     vec2 distortedPosition;
 
+    undistortedPosition = (undistortedPosition-undistortedCetrnoid)*resultZoom;
+
     float undistortedRadius = distance(undistortedPosition, undistortedCetrnoid);
+    //undistortedRadius/=resultZoom;
     float distortedRadius = atan(undistortedRadius/distortionCoefficient)*distortionCoefficient;
     float scale = distortedRadius/undistortedRadius;
 
@@ -221,24 +239,37 @@ void main() {
     return distortedPosition;
   }
   
-  
-  
   void main() {
-      // draw the circle 
-      vec2 texturePosition =vec2( v_texCoord.x * textureSize.x, v_texCoord.y*textureSize.y);
-  
+
+    if (v_texCoord.x<.5)
+    {
+      // show source pixel in left panel 
+      vec2 leftTexturePosition = v_texCoord*vec2(2.,1.);
+      vec2 texturePosition =leftTexturePosition*textureSize;
       // show centroid
       if (distance(texturePosition, centroid )<centroidRadius)
       {
-        vec3 textureColor = texture2D(u_image, v_texCoord).rgb;
+        vec3 textureColor = texture2D(u_image, leftTexturePosition).rgb;
         gl_FragColor = vec4( vec3(1.)-textureColor, 1.);
         return ;
       }
-      vec2 undistortedPosition = getUndistortedPosition( texturePosition, textureSize/2., centroid, distortionCoefficient);
-     
-     //gl_FragColor = texture2D(u_image, v_texCoord).rgba;
-     gl_FragColor = texture2D(u_image, undistortedPosition/textureSize).rgba;
-     //gl_FragColor = vec4( vec3(distortionCoefficient/400.), 1.);
+      // draw the circle 
+      gl_FragColor = texture2D(u_image, leftTexturePosition).rgba;
+      return ;
+    }
+    else
+    {
+      // show result pixel in right panel
+      vec2 rightTexturePosition = v_texCoord*vec2(2.,1.)-vec2(1.,0.);
+      vec2 texturePosition =vec2( rightTexturePosition.x * textureSize.x, rightTexturePosition.y*textureSize.y);
+      vec2 undistortedPosition = getUndistortedPosition( texturePosition, textureSize/2., centroid, distortionCoefficient, resultZoom);
+      vec2 resultCoord = undistortedPosition/textureSize;
+      if( resultCoord.x <0. || resultCoord.x>=1. || resultCoord.y <0. || resultCoord.y>=1.)
+        gl_FragColor = vec4(0.,0.,0.,1.);
+      else
+        gl_FragColor = texture2D(u_image, undistortedPosition/textureSize).rgba;
+      return ;
+    }
 
   }
 </script>
@@ -250,6 +281,7 @@ void main() {
   <div data-role="content"> <label for="centroidX">Centroid X coordinate :</label> <input type="range" name="centroidX" id="centroidX" value="50" min="0" max="100"> </div>
   <div data-role="context"> <label for="centroidY">Centroid Y coordinate :</label> <input type="range" name="centroidY" id="centroidY" value="50" min="0" max="100"> </div>
   <div data-role="context"> <label for="distortionCoefficient">Distortion Coefficient:</label> <input type="range" name="distortionCoefficient" id="distortionCoefficient" value="227" min="50" max="500", step=".5"> </div>
+  <div data-role="context"> <label for="resultZoom">result zoom:</label> <input type="range" name="resultZoom" id="resultZoom" value="2" min=".5" max="10", step=".2"> </div>
 
 </body>
 </html>
