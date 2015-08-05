@@ -24,6 +24,12 @@ function main() {
     canvas.width = image.width;
     canvas.height= image.height;
     render(image);
+
+    var centroidX = document.getElementById("centroidX");
+    centroidX.max = image.width;
+
+    var centroidY = document.getElementById("centroidY");
+    centroidX.max = image.height;
   }
 }
 
@@ -74,6 +80,13 @@ function render(image) {
   // set the resolution
   gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
 
+
+  // set the centroid 
+  var centroidLocation = gl.getUniformLocation(program, "centroid");
+  var centroidX = document.getElementById('centroidX');
+  var centroidY = document.getElementById('centroidY');
+  gl.uniform2f(centroidLocation, centroidX.value, centroidY.value);
+
   // Create a buffer for the position of the rectangle corners.
   var positionBuffer = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
@@ -115,6 +128,8 @@ uniform vec2 u_resolution;
 
 varying vec2 v_texCoord;
 
+varying vec2 centroid;
+
 void main() {
    // convert the rectangle from pixels to 0.0 to 1.0
    vec2 zeroToOne = a_position / u_resolution;
@@ -150,10 +165,10 @@ void main() {
 <body>
 <canvas id="canvas" width="400" height="300"></canvas>
 
-  <div data-role="fieldcontain">
-    <label for="points">Points:</label>
-    <input type="range" name="points" id="points" value="50" min="0" max="100">
-  </div>
+  <div data-role="content"> <label for="centroidX">Centroid X coordinate :</label> <input type="range" name="centroidX" id="centroidX" value="50" min="0" max="100"> </div>
+  <div data-role="context"> <label for="centroidY">Centroid Y coordinate :</label> <input type="range" name="centroidY" id="centroidY" value="50" min="0" max="100"> </div>
+  <div data-role="context"> <label for="distortionCoefficient">Distortion Coefficient:</label> <input type="range" name="distortionCoefficient" id="distortionCoefficient" value="227" min="50" max="500"> </div>
+
 </body>
 </html>
 
