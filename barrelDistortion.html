@@ -3,6 +3,8 @@
 <html>
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes" />
 <title>Barrel distortion test</title>
 <link rel="stylesheet" href="css/jquery.mobile.structure-1.0.1.css" />
 <link rel="stylesheet" href="css/jquery.mobile-1.0.1.css" />
@@ -13,19 +15,82 @@
 <script>
 //"use strict";
 
-window.onload = main;
 
+window.onload = main;
 function main() {
+  var canvas = document.getElementById('canvas');
   var image = new Image();
   image.src = "imgs/h.jpg";  // MUST BE SAME DOMAIN!!!
-  image.onload = function() {
 
-    var canvas = document.getElementById("canvas");
-    canvas.width = image.width * 2;
-    canvas.height= image.height;
+  function resizeCanvas(canvas, image)
+  {
+    if(image)
+    {
+      if(image.width<window.innerWidth)
+      {
+        canvas.width = image.width; 
+        canvas.height = image.height;
+      }
+      else
+      {
+        // keep respect retio
+        canvas.width = window.innerWidth;
+        canvas.height = canvas.width*image.height/image.width;
+      }
+    }
+    else
+    {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight/2;
+    }
+    var centroidX = document.getElementById('centroidX');
+    centroidX.min=0;
+    centroidX.max=image.width;
+    centroidX.value=image.width/2;
+
+    var centroidY = document.getElementById('centroidY');
+    centroidY.min=0;
+    centroidY.max=image.height;
+    centroidY.value=image.height/2;
+
+    var maxRadius = document.getElementById('maxRadius');
+    maxRadius.min=1;
+    var imageHalfWidth  = image.width /2;
+    var imageHalfHeight = image.height/2;
+    var imageHalfRadius = Math.sqrt(imageHalfWidth*imageHalfWidth+imageHalfHeight*imageHalfHeight);
+    maxRadius.max       = imageHalfRadius*2;
+    maxRadius.value     = imageHalfRadius*2;
+  }
+
+  image.onload = function() {
+    resizeCanvas(canvas, image);
     render(image);
   }
 
+  var imageLoader = document.getElementById('imageLoader');
+  imageLoader.addEventListener('change', handleImage, false);
+
+  function handleImage(e){
+    var reader = new FileReader();
+    reader.onload = function(event){
+      var img = new Image();
+      img.onload = function(){
+        resizeCanvas(canvas, image);
+        render(img)
+      }
+      img.src = event.target.result;
+    }
+    reader.readAsDataURL(e.target.files[0]);     
+  }
+
+  // resize the canvas to fill browser window dynamically
+  window.addEventListener('resize', resizeCanvas, false);
+  resizeCanvas(canvas, image);
+  
+  // set refresh button 
+  $('#refreshButton').click(function() {
+        location.reload();
+  });
 }
 
 function render(image) {
@@ -48,12 +113,12 @@ function render(image) {
   var texCoordBuffer = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
-      0.0,  0.0,
-      1.0,  0.0,
-      0.0,  1.0,
-      0.0,  1.0,
-      1.0,  0.0,
-      1.0,  1.0]), gl.STATIC_DRAW);
+        0.0,  0.0,
+        1.0,  0.0,
+        0.0,  1.0,
+        0.0,  1.0,
+        1.0,  0.0,
+        1.0,  1.0]), gl.STATIC_DRAW);
   gl.enableVertexAttribArray(texCoordLocation);
   gl.vertexAttribPointer(texCoordLocation, 2, gl.FLOAT, false, 0, 0);
 
@@ -73,7 +138,7 @@ function render(image) {
   var resolutionLocation = gl.getUniformLocation(program, "u_resolution");
 
   // set the resolution
-  gl.uniform2f(resolutionLocation, canvas.width/2, canvas.height);
+  gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
 
   function reDrawCanvas()
   {
@@ -83,16 +148,24 @@ function render(image) {
     var centroidY = document.getElementById('centroidY');
     gl.uniform2f(centroidLocation, centroidX.value, centroidY.value);
 
+    // set textureSize
     var textureSizeLocation = gl.getUniformLocation(program, "textureSize");
     gl.uniform2f(textureSizeLocation, image.width, image.height);
 
-    var distortionCoefficientLocation=gl.getUniformLocation(program, 'distortionCoefficient');
-    var distortionCoefficient = document.getElementById('distortionCoefficient');
-    gl.uniform1f(distortionCoefficientLocation, distortionCoefficient.value);
+    // set max radius
+    var maxRadiusLocaltion=gl.getUniformLocation(program, 'maxRadius');
+    var maxRadius = document.getElementById('maxRadius');
+    gl.uniform1f(maxRadiusLocaltion, maxRadius.value);
 
-    var resultZoomLocation=gl.getUniformLocation(program, 'resultZoom');
-    var resultZoom = document.getElementById('resultZoom');
-    gl.uniform1f(resultZoomLocation, resultZoom.value);
+    // set image type
+    var imageTypeLocation = gl.getUniformLocation(program, 'imageType');
+    var imageType = document.getElementById('imageType');
+    gl.uniform1f(imageTypeLocation, imageType.value);
+
+    // result zoom
+    var zoomLocation=gl.getUniformLocation(program, 'zoom');
+    var zoom = document.getElementById('zoom');
+    gl.uniform1f(zoomLocation, zoom.value);
 
     setRectangle(gl, 0, 0, image.width, image.height);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
@@ -100,37 +173,11 @@ function render(image) {
   }
 
 
-  var centroidX = document.getElementById("centroidX");
-  centroidX.max = image.width;
-  centroidX.value = image.width/2;
   $('#centroidX').change( function() { reDrawCanvas(); });
-
-  var centroidY = document.getElementById("centroidY");
-  centroidY.max = image.height;
-  centroidY.value = image.height/2;
   $('#centroidY').change( function() { reDrawCanvas(); });
-
-  // set the centroid 
-  var centroidLocation = gl.getUniformLocation(program, "centroid");
-  var centroidX = document.getElementById('centroidX');
-  var centroidY = document.getElementById('centroidY');
-  gl.uniform2f(centroidLocation, centroidX.value, centroidY.value);
-
-  // set texture size
-  var textureSizeLocation = gl.getUniformLocation(program, "textureSize");
-  gl.uniform2f(textureSizeLocation, canvas.width, canvas.height);
-
-  // set distortion efficient
-  var distortionCoefficientLocation = gl.getUniformLocation(program, "distortionCoefficient");
-  var distortionCoefficient = document.getElementById('distortionCoefficient');
-  $('#distortionCoefficient').change( function() { reDrawCanvas(); });
-  gl.uniform1f(distortionCoefficientLocation, distortionCoefficient.value);
-
-  // set result zoom scale 
-  var resultZoomLocation = gl.getUniformLocation(program, "resultZoom");
-  var resultZoom = document.getElementById('resultZoom');
-  $('#resultZoom').change( function() { reDrawCanvas(); });
-  gl.uniform1f(resultZoomLocation, resultZoom.value);
+  $('#maxRadius').change( function() { reDrawCanvas(); });
+  $('#zoom')     .change( function() { reDrawCanvas(); });
+  $('#imageType').change( function() { reDrawCanvas(); });
 
 
 
@@ -159,12 +206,12 @@ function setRectangle(gl, x, y, width, height) {
   var y1 = y;
   var y2 = y + height;
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
-     x1, y1,
-     x2, y1,
-     x1, y2,
-     x1, y2,
-     x2, y1,
-     x2, y2]), gl.STATIC_DRAW);
+        x1, y1,
+        x2, y1,
+        x1, y2,
+        x1, y2,
+        x2, y1,
+        x2, y2]), gl.STATIC_DRAW);
 }
 
 </script>
@@ -179,110 +226,156 @@ varying vec2 v_texCoord;
 
 
 void main() {
-   // convert the rectangle from pixels to 0.0 to 1.0
-   vec2 zeroToOne = a_position / u_resolution;
+  // convert the rectangle from pixels to 0.0 to 1.0
+  vec2 zeroToOne = a_position / u_resolution;
 
-   // convert from 0->1 to 0->2
-   vec2 zeroToTwo = zeroToOne * 2.0;
+  // convert from 0->1 to 0->2
+  vec2 zeroToTwo = zeroToOne * 2.0;
 
-   // convert from 0->2 to -1->+1 (clipspace)
-   vec2 clipSpace = zeroToTwo - 1.0;
+  // convert from 0->2 to -1->+1 (clipspace)
+  vec2 clipSpace = zeroToTwo - 1.0;
 
-   gl_Position = vec4(clipSpace * vec2(1, -1), 0, 1);
+  gl_Position = vec4(clipSpace * vec2(1, -1), 0, 1);
 
-   // pass the texCoord to the fragment shader
-   // The GPU will interpolate this value between points.
-   v_texCoord = a_texCoord;
+  // pass the texCoord to the fragment shader
+  // The GPU will interpolate this value between points.
+  v_texCoord = a_texCoord;
 }
 </script>
 <!-- fragment shader -->
 <script id="2d-fragment-shader" type="x-shader/x-fragment">
-  precision highp float;
-  //precision mediump float;
-  
-  // our texture
-  uniform sampler2D u_image;
-  
-  // input texture size
-  uniform vec2 textureSize; 
-  
-  // centroid
-  uniform vec2 centroid;
+precision highp float;
+//precision mediump float;
 
-  // distortion coefficient 
-  uniform float distortionCoefficient;
-  
-  // result zoom scale variable
-  uniform float resultZoom;
-  
-  // the texCoords passed in from the vertex shader.
-  varying vec2 v_texCoord;
-  
-  // const variables
-  const float centroidRadius = 10.;
- 
+// our texture
+uniform sampler2D u_image;
 
-  // get undistorted position
-  vec2 getUndistortedPosition( vec2 undistortedPosition, vec2 undistortedCetrnoid, vec2 distortedCentroid, float distortionCoefficient, float resultZoom)
+// input texture size
+uniform vec2 textureSize; 
+
+// centroid
+uniform vec2 centroid;
+
+// max radius 
+uniform float maxRadius;
+
+// image type
+uniform float imageType;
+
+// zoom scale variable
+uniform float zoom;
+
+// the texCoords passed in from the vertex shader.
+varying vec2 v_texCoord;
+
+// const variables
+const float centroidRadius = 10.;
+
+const float centroidEdgeGap = 10.;
+
+
+// get undistorted position
+vec2 getUndistortedPosition( vec2 undistortedPosition, vec2 undistortedCetrnoid, vec2 distortedCentroid, float maxRadius, float zoom)
+{
+  vec2 distortedPosition;
+
+  undistortedPosition = (undistortedPosition-undistortedCetrnoid)*zoom;
+
+  float undistortedRadius = distance(undistortedPosition, undistortedCetrnoid);
+  float distortedRadius = atan(undistortedRadius/maxRadius)*maxRadius;
+  float scale = distortedRadius/undistortedRadius;
+
+  distortedPosition = distortedCentroid+(undistortedPosition-undistortedCetrnoid)*scale;
+
+  return distortedPosition;
+}
+
+void main() {
+
+  vec2  finalTexturePosition;
+
+  if (imageType<.5)
   {
-    vec2 distortedPosition;
-
-    undistortedPosition = (undistortedPosition-undistortedCetrnoid)*resultZoom;
-
-    float undistortedRadius = distance(undistortedPosition, undistortedCetrnoid);
-    //undistortedRadius/=resultZoom;
-    float distortedRadius = atan(undistortedRadius/distortionCoefficient)*distortionCoefficient;
-    float scale = distortedRadius/undistortedRadius;
-
-    distortedPosition = distortedCentroid+(undistortedPosition-undistortedCetrnoid)*scale;
-
-    return distortedPosition;
-  }
-  
-  void main() {
-
-    if (v_texCoord.x<.5)
+    // show source pixel in left panel 
+    vec2 leftTexturePosition = (v_texCoord-vec2(.5,.5))*zoom+vec2(.5,.5);
+    vec2 texturePosition =leftTexturePosition*textureSize;
+    float currentPositionRadius = distance(texturePosition, centroid );
+    // show centroid
+    if (currentPositionRadius<centroidRadius)
     {
-      // show source pixel in left panel 
-      vec2 leftTexturePosition = v_texCoord*vec2(2.,1.);
-      vec2 texturePosition =leftTexturePosition*textureSize;
-      // show centroid
-      if (distance(texturePosition, centroid )<centroidRadius)
-      {
-        vec3 textureColor = texture2D(u_image, leftTexturePosition).rgb;
-        gl_FragColor = vec4( vec3(1.)-textureColor, 1.);
-        return ;
-      }
-      // draw the circle 
-      gl_FragColor = texture2D(u_image, leftTexturePosition).rgba;
+      vec3 textureColor = texture2D(u_image, leftTexturePosition).rgb;
+      gl_FragColor = vec4( vec3(1.)-textureColor, 1.);
       return ;
     }
-    else
+    // show circle eage
+    if(currentPositionRadius>maxRadius-centroidEdgeGap&&currentPositionRadius<maxRadius+centroidEdgeGap)
     {
-      // show result pixel in right panel
-      vec2 rightTexturePosition = v_texCoord*vec2(2.,1.)-vec2(1.,0.);
-      vec2 texturePosition =vec2( rightTexturePosition.x * textureSize.x, rightTexturePosition.y*textureSize.y);
-      vec2 undistortedPosition = getUndistortedPosition( texturePosition, textureSize/2., centroid, distortionCoefficient, resultZoom);
-      vec2 resultCoord = undistortedPosition/textureSize;
-      if( resultCoord.x <0. || resultCoord.x>=1. || resultCoord.y <0. || resultCoord.y>=1.)
-        gl_FragColor = vec4(0.,0.,0.,1.);
-      else
-        gl_FragColor = texture2D(u_image, undistortedPosition/textureSize).rgba;
+      vec3 textureColor = texture2D(u_image, leftTexturePosition).rgb;
+      gl_FragColor = vec4( vec3(1.)-textureColor, 1.);
       return ;
     }
-
+    finalTexturePosition = leftTexturePosition;
   }
+  else
+  {
+    // show result pixel in right panel
+    vec2 rightTexturePosition = v_texCoord;
+    vec2 texturePosition =vec2( rightTexturePosition.x * textureSize.x, rightTexturePosition.y*textureSize.y);
+    vec2 undistortedPosition = getUndistortedPosition( texturePosition, textureSize/2., centroid, maxRadius, zoom);
+    vec2 resultCoord = undistortedPosition/textureSize;
+    finalTexturePosition = resultCoord;
+  }
+
+  if( finalTexturePosition.x <0. || finalTexturePosition.x>=1. || finalTexturePosition.y <0. || finalTexturePosition.y>=1.)
+    gl_FragColor = vec4(0.,0.,0.,1.);
+  else
+    gl_FragColor = texture2D(u_image, finalTexturePosition).rgba;
+  return ;
+
+}
+</script>
+<script>
+// rest of the code goes here...
 </script>
 </head>
 <body>
 
-<canvas id="canvas" width="400" height="300"></canvas>
+<div data-role="page">
+  <div data-role="header">
+    <h1>Barrel distion test</h1>
+  </div>
+  <div data-role="content">
+    <div data-role="listview">
+      <canvas id="canvas" width="100%" height="300"></canvas>
+      <div class="ui-field-contain">
+        <label for="centroidX">Centroid X:</label> <input type="range" name="centroidX" id="centroidX" value="50" min="0" max="100" step='1.'> 
+      </div>
+      <div class="ui-field-contain">
+        <label for="centroidY">Centroid Y:</label> <input type="range" name="centroidY" id="centroidY" value="50" min="0" max="100" step='1.'> 
+      </div>
+      <div class="ui-field-contain">
+        <label for="maxRadius">Max Radius:</label> <input type="range" name="maxRadius" id="maxRadius" value="227" min="50" max="500", step=".5"> 
+      </div>
+      <div class="ui-field-contain">
+        <label for="zoom">zoom:</label> <input type="range" name="zoom" id="zoom" value="1" min=".5" max="10", step=".2">
+      </div>
+      <div class="ui-field-contain">
+        <label for="gender">image type:</label>  
+        <select name="imageType" id="imageType" data-role="slider" >  
+          <option value="0">source Image</option>  
+          <option value="1">result image</option>  
+        </select>  
+      </div>
 
-  <div data-role="content"> <label for="centroidX">Centroid X coordinate :</label> <input type="range" name="centroidX" id="centroidX" value="50" min="0" max="100"> </div>
-  <div data-role="context"> <label for="centroidY">Centroid Y coordinate :</label> <input type="range" name="centroidY" id="centroidY" value="50" min="0" max="100"> </div>
-  <div data-role="context"> <label for="distortionCoefficient">Distortion Coefficient:</label> <input type="range" name="distortionCoefficient" id="distortionCoefficient" value="227" min="50" max="500", step=".5"> </div>
-  <div data-role="context"> <label for="resultZoom">result zoom:</label> <input type="range" name="resultZoom" id="resultZoom" value="2" min=".5" max="10", step=".2"> </div>
+      <label for="imageLoader">test image:</label> <input id='imageLoader' type=file accept="image/*">
+    <a href="" id='refreshButton' name='refreshButton' data-role="button">refresh </a>
+    </div> <!-- list view -->
+  </div> <!-- content -->
 
+  <div data-role="footer">
+  <h4>contact me at <a href='mailto:2979776856@qq.com'>2979776856@qq.com</a></h4>
+  </div> <!-- footer -->
+</div><!-- page -->
 </body>
 </html>
 
