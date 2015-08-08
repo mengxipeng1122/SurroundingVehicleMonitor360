@@ -17,17 +17,28 @@ overflow: hidden;
 <script src="refer/three.js/examples/js/controls/TrackballControls.js"></script>
 <script src="refer/three.js/examples/js/Detector.js"></script>
 <script src="refer/three.js/examples/js/libs/stats.min.js"></script>
+<script src="refer/three.js/examples/js/libs/dat.gui.min.js"></script>
 
 <script id="vertexShader" type="x-shader/x-vertex">
 
-varying vec2 v_texCoord;
+varying vec3 v_texCoord;
+
+uniform float drawPlane;
 
 void main() {
 
-  //gl_Position = vec4( position, 1.0 );
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  if(drawPlane>.5)
+  {
 
-  v_texCoord = position.xy;
+    gl_Position = vec4( position, 1.0 );
+
+  }
+  else
+  {
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+
+  v_texCoord = position;
 
 
 }
@@ -37,18 +48,41 @@ void main() {
 <script id="fragmentShader" type="x-shader/x-fragment">
 
 uniform vec2 resolution;
-uniform float time;
 
-uniform sampler2D texture1;
+uniform sampler2D textureFront;
 
-varying vec2 v_texCoord;
+uniform float drawPlane;
+
+varying vec3 v_texCoord;
 
 void main() {
 
-  gl_FragColor=vec4(vec3(v_texCoord.x,v_texCoord.y,0.),1.);
-  float width = 200.;
-  vec2 vUv = vec2(v_texCoord.x/width, v_texCoord.y/width);
-  gl_FragColor = texture2D(texture1, vUv);
+   // gl_FragColor =vec4(vec3( drawPlane),1.);
+
+  //return ;
+
+  if(drawPlane>.5)
+  {
+
+    vec2 imageUV = v_texCoord.xy;
+
+    imageUV += 1.;
+    imageUV /= 2.;
+
+    gl_FragColor = texture2D(textureFront, imageUV);
+
+  }
+  else
+  {
+
+    vec2 imageUV = v_texCoord.xy;
+
+    imageUV += resolution/2.;
+
+    vec2 vUv = vec2(imageUV.x/resolution.x, imageUV.y/resolution.y);
+    gl_FragColor = texture2D(textureFront, vUv);
+
+  }
 
 }
 
@@ -58,6 +92,8 @@ void main() {
 <script>
 
 var camera, scene, controls, renderer;
+
+var material;
 var mesh;
 
 var uniforms;
@@ -95,26 +131,34 @@ function init() {
 
   controls.addEventListener( 'change', render );
 
+  var imageWidth  = 720;
+  var imageHeight = 576;
+
 
   // world
 
   scene = new THREE.Scene();
   // scene.matrixAutoUpdate=false;
 
-  var geometry = new THREE.PlaneGeometry( 120, 120, 1, 1 );
+  var geometry = new THREE.PlaneGeometry( imageWidth, imageHeight, 1, 1 );
 
   //var texture = THREE.ImageUtils.loadTexture( 'textures/crate.gif' );
-  var texture = THREE.ImageUtils.loadTexture( 'imgs/q.jpg');
-  texture.anisotropy = renderer.getMaxAnisotropy();
+  // var texture = THREE.ImageUtils.loadTexture( 'imgs/q.jpg');
+  // texture.anisotropy = renderer.getMaxAnisotropy();
 
   //var material = new THREE.MeshBasicMaterial( { map: texture } );
   //var material = new THREE.MeshBasicMaterial( { } );
 
+  var textureFront = THREE.ImageUtils.loadTexture( 'imgs/q.jpg');
+
   uniforms = {
-    time: { type: "f", value: 1.0 },
-      resolution: { type: "v2", value: new THREE.Vector2() },
-      texture1: { type: "t", value: THREE.ImageUtils.loadTexture( "imgs/front.png" ) }
+      resolution: { type: "v2", value: new THREE.Vector2(imageWidth, imageHeight) },
+      drawPlane: { type: "f", value:1 },
+      textureFront: { type: "t", value: textureFront}
     };
+
+
+  //setupControls(uniforms);
 
   var material = new THREE.ShaderMaterial( {
       uniforms: uniforms,
@@ -130,8 +174,75 @@ function init() {
   //
 
 
+  initGUI(uniforms);
 
   window.addEventListener( 'resize', onWindowResize, false );
+
+}
+
+
+function setupControls(ob) {
+  var gui = new dat.GUI();
+  // var sceneFolder = gui.addFolder('Scene');
+  // var geoController = sceneFolder.add({Geometry:"box"}, 'Geometry', [ 'box', 'sphere', 'torusknot' ] );
+  //geoController.onChange(changeGeometry);
+  var uniformsFolder = gui.addFolder('Uniforms');
+  for(key in ob){
+    if(ob[key].type == 'f'){
+      var controller = uniformsFolder.add(ob[key], 'value').name(key);
+      if(typeof ob[key].min != 'undefined'){
+        controller.min(ob[key].min).name(key);
+      }
+      if(typeof ob[key].max != 'undefined'){
+        controller.max(ob[key].max).name(key);
+      }
+      controller.onChange(function(value){
+          this.object.value = parseFloat(value);
+          });
+    }else if(ob[key].type == 'c'){
+      ob[key].guivalue = [ob[key].value.r * 255, ob[key].value.g * 255, ob[key].value.b * 255];
+      var controller = uniformsFolder.addColor(ob[key], 'guivalue').name(key);
+      controller.onChange(function(value){
+          this.object.value.setRGB(value[0]/255, value[1]/255, value[2]/255);
+          });
+    }
+  }
+  uniformsFolder.open();
+  //var sourceFolder = gui.addFolder('Source');
+  //var butob = {
+  //  'view vertex shader code': function(){
+  //    TINY.box.show({html:'<div style="width: 500px; height: 500px;"><h3 style="margin: 0px; padding-bottom: 5px;">Vertex Shader</h3><pre style="overflow: scroll; height: 470px;">'+document.getElementById('vertexShader').text+'</pre></div>',animate:false,close:false,top:5})
+  //  },
+  //  'view fragment shader code': function(){
+  //    TINY.box.show({html:'<div style="width: 500px; height: 500px;"><h3 style="margin: 0px; padding-bottom: 5px;">Fragment Shader</h3><pre style="overflow: scroll; height: 470px;">'+document.getElementById('fragmentShader').text+'</pre></div>',animate:false,close:false,top:5})
+  //  }
+  //};
+  //sourceFolder.add(butob, 'view vertex shader code');
+  //sourceFolder.add(butob, 'view fragment shader code');
+
+}
+
+function initGUI(ob) {
+
+  var API = {
+    'draw at plane' : ob['drawPlane'].value >.5
+  };
+
+  var gui = new dat.GUI();
+
+  //gui.add( API, 'show model' ).onChange( function() { mesh.visible = API[ 'show model' ]; } );
+
+  gui.add( API, 'draw at plane' ).onChange( function() {
+    var oldValue = ob['drawPlane'].value;
+    if (oldValue>.5)
+    {
+       ob['drawPlane'].value = 0.;
+    }
+    else
+    {
+       ob['drawPlane'].value = 1.;
+    }
+  } );
 
 }
 
