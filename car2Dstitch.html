@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<title>three.js webgl - geometry - cube</title>
+<meta charset="utf-8">
+<style>
+body {
+margin: 0px;
+        background-color: #000000;
+overflow: hidden;
+}
+</style>
+</head>
+<body>
+
+<script src="refer/three.js/build/three.min.js"></script>
+<script src="refer/three.js/examples/js/controls/TrackballControls.js"></script>
+<script src="refer/three.js/examples/js/Detector.js"></script>
+<script src="refer/three.js/examples/js/libs/stats.min.js"></script>
+<script src="refer/three.js/examples/js/libs/dat.gui.min.js"></script>
+
+<script id="vertexShader" type="x-shader/x-vertex">
+
+varying vec3 v_texCoord;
+
+uniform float drawPlane;
+
+void main() {
+
+  if(drawPlane>.5)
+  {
+
+    gl_Position = vec4( position, 1.0 );
+
+  }
+  else
+  {
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+
+  v_texCoord = position;
+
+
+}
+
+</script>
+
+<script id="fragmentShader" type="x-shader/x-fragment">
+
+uniform vec2 resolution;
+uniform vec2 outputResolution;
+
+uniform sampler2D textureSource;
+
+uniform sampler2D textureLoNo;
+uniform sampler2D textureLoX; 
+uniform sampler2D textureLoY; 
+
+uniform sampler2D textureHiNo;
+uniform sampler2D textureHiX; 
+uniform sampler2D textureHiY; 
+
+uniform sampler2D textureLoHiAlpha; 
+
+
+uniform float drawPlane;
+
+varying vec3 v_texCoord;
+
+float vec4tofloat(vec4 v, float scale)
+{
+  v.xyz*=256.;
+  float f = v.x*256.+v.y+v.z/256.;
+  return f/scale;
+}
+
+vec4 getBigTexturePixel( sampler2D texture, vec2 textureSize, float no, float x, float y )
+{
+  vec4 pix = vec4(vec3(0.),1.);
+  vec2 xy;
+  if(x<0. || x>=textureSize.x/2. || y<0. || y>=textureSize.y/2.)
+  {
+    return pix;
+  }
+
+  if(no>2.5) // right 
+  {
+    xy = vec2( .5 + x/textureSize.x,  .0 + .5-y/textureSize.y );
+
+    pix = texture2D( texture, xy); 
+  }
+  else if (no<=2.5 && no>1.5) // left
+  {
+    xy = vec2( .0 + x/textureSize.x,  .0 + .5-y/textureSize.y );
+    pix = texture2D( texture, xy); 
+  }
+  else if (no<=1.5 && no>0.5) // rear
+  {
+    xy = vec2( .5 + x/textureSize.x,  .5 + .5-y/textureSize.y );
+    pix = texture2D( texture, xy); 
+  }
+  else // front
+  {
+    xy = vec2( .0 + x/textureSize.x,  .5 + .5-y/textureSize.y );
+    pix = texture2D( texture, xy); 
+  }
+
+  return pix; 
+}
+
+void main() {
+
+
+  if(drawPlane>.5)
+  {
+
+    vec2 imageUV = v_texCoord.xy;
+
+    imageUV += 1.;
+    imageUV /= 2.;
+
+    // // convert the openGL coordinate to image coordinate
+    // imageUV.y=1.-imageUV.y;
+   
+    float hiX = vec4tofloat(texture2D( textureHiX, imageUV), 1.);
+    float hiY = vec4tofloat(texture2D( textureHiY, imageUV), 1.);
+    float hiNo= vec4tofloat(texture2D( textureHiNo,imageUV), 1.);
+    
+    float loX = vec4tofloat(texture2D( textureLoX, imageUV), 1.);
+    float loY = vec4tofloat(texture2D( textureLoY, imageUV), 1.);
+    float loNo= vec4tofloat(texture2D( textureLoNo,imageUV), 1.);
+
+    float loHiAlpha= vec4tofloat(texture2D( textureLoHiAlpha,imageUV), 2.);
+
+    vec4 hiPix = getBigTexturePixel( textureSource, resolution*2., hiNo, hiX, hiY);
+    vec4 loPix = getBigTexturePixel( textureSource, resolution*2., loNo, loX, loY);
+
+    // if( hiNo<.5)
+    // {
+    // gl_FragColor=vec4(vec3(hiX/resolution.x),1.);
+    // }
+    // else
+    // {
+    // gl_FragColor=vec4(vec3(0.),1.);
+    // }
+    // return;
+
+
+    if (loHiAlpha>0.)
+    {
+      gl_FragColor = hiPix*(1.-loHiAlpha)+loPix*loHiAlpha;
+      return;
+    }
+    else
+    {
+      gl_FragColor = hiPix;
+      return;
+    }
+    
+
+
+    gl_FragColor = texture2D(textureSource, imageUV);
+    //gl_FragColor = vec4(imageUV.x, imageUV.y, 0., 1.);
+    //gl_FragColor = 
+
+  }
+  else
+  {
+
+    vec2 imageUV = v_texCoord.xy;
+
+    imageUV += resolution/2.;
+
+    vec2 vUv = vec2(imageUV.x/resolution.x, imageUV.y/resolution.y);
+    gl_FragColor = texture2D(textureSource, vUv);
+
+  }
+
+}
+
+</script>
+
+
+<script>
+
+var camera, scene, controls, renderer;
+
+var material;
+var mesh;
+
+var uniforms;
+
+init();
+animate();
+
+function init() {
+
+  renderer = new THREE.WebGLRenderer();
+  renderer.setPixelRatio( window.devicePixelRatio );
+  renderer.setSize( window.innerWidth, window.innerHeight );
+  document.body.appendChild( renderer.domElement );
+
+  //camera 
+
+  camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, 1, 1000000 );
+  camera.position.z = 400;
+
+
+  // control
+  controls = new THREE.TrackballControls( camera );
+
+  controls.rotateSpeed = 1.0;
+  controls.zoomSpeed = 1.2;
+  controls.panSpeed = 0.8;
+
+  controls.noZoom = false;
+  controls.noPan = false;
+
+  controls.staticMoving = true;
+  controls.dynamicDampingFactor = 0.3;
+
+  controls.keys = [ 65, 83, 68 ];
+
+  controls.addEventListener( 'change', render );
+
+  var imageWidth  = 720;
+  var imageHeight = 576;
+
+  var outputWidth = 720;
+  var outputHeight= 480;
+
+
+  // world
+
+  scene = new THREE.Scene();
+  // scene.matrixAutoUpdate=false;
+
+  var geometry = new THREE.PlaneGeometry( imageWidth, imageHeight, 1, 1 );
+
+
+  uniforms = {
+      resolution: { type: "v2", value: new THREE.Vector2(imageWidth, imageHeight) },
+      outputResolution: { type: "v2", value: new THREE.Vector2(outputWidth, outputHeight) },
+      drawPlane: { type: "f", value:1 },
+
+      textureSource: { type: "t", value: THREE.ImageUtils.loadTexture('imgs/imageBig.png') },
+
+      textureLoNo: { type: "t", value: THREE.ImageUtils.loadTexture('loNo.png') },
+      textureLoX:  { type: "t", value: THREE.ImageUtils.loadTexture('loX.png' ) },
+      textureLoY:  { type: "t", value: THREE.ImageUtils.loadTexture('loY.png' ) },
+
+      textureHiNo: { type: "t", value: THREE.ImageUtils.loadTexture('hiNo.png') },
+      textureHiX:  { type: "t", value: THREE.ImageUtils.loadTexture('hiX.png' ) },
+      textureHiY:  { type: "t", value: THREE.ImageUtils.loadTexture('hiY.png' ) },
+
+      textureLoHiAlpha:  { type: "t", value: THREE.ImageUtils.loadTexture('loHiAlpha.png' ) },
+    };
+
+
+
+  var material = new THREE.ShaderMaterial( {
+      uniforms: uniforms,
+      vertexShader: document.getElementById( 'vertexShader' ).textContent,
+      fragmentShader: document.getElementById( 'fragmentShader' ).textContent
+    } );
+
+
+  mesh = new THREE.Mesh( geometry, material );
+  scene.add( mesh );
+
+  //
+  initGUI(uniforms);
+
+  window.addEventListener( 'resize', onWindowResize, false );
+
+}
+
+
+function initGUI(ob) {
+
+  var API = {
+    'draw at plane' : ob['drawPlane'].value >.5
+  };
+
+  var gui = new dat.GUI();
+
+  gui.add( API, 'draw at plane' ).onChange( function() {
+    var oldValue = ob['drawPlane'].value;
+    if (oldValue>.5)
+    {
+       ob['drawPlane'].value = 0.;
+    }
+    else
+    {
+       ob['drawPlane'].value = 1.;
+    }
+  } );
+
+}
+
+function onWindowResize() {
+
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+
+  renderer.setSize( window.innerWidth, window.innerHeight );
+
+  controls.handleResize();
+  render();
+
+}
+
+function animate() {
+ 
+     requestAnimationFrame( animate );
+ 
+ //  mesh.rotation.x += 0.00;
+ //  mesh.rotation.y += .01;
+ //  mesh.rotation.z += 0.00;
+ 
+   renderer.render( scene, camera );
+ 
+   controls.update();
+ }
+
+function render() {
+
+  renderer.render( scene, camera );
+
+}
+
+</script>
+
+</body>
+</html>
+
