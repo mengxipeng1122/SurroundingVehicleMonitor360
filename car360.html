@@ -14,10 +14,8 @@ overflow: hidden;
 <body>
 
 <script src="refer/three.js/build/three.min.js"></script>
-<script src="refer/three.js/examples/js/controls/TrackballControls.js"></script>
-<script src="refer/three.js/examples/js/Detector.js"></script>
-<script src="refer/three.js/examples/js/libs/stats.min.js"></script>
 <script src="refer/three.js/examples/js/libs/dat.gui.min.js"></script>
+<script src="refer/three.js/examples/js/libs/stats.min.js"></script>
 
 <script id="vertexShader" type="x-shader/x-vertex">
 
@@ -27,16 +25,7 @@ uniform float drawPlane;
 
 void main() {
 
-  if(drawPlane>.5)
-  {
-
-    gl_Position = vec4( position, 1.0 );
-
-  }
-  else
-  {
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-  }
+   gl_Position = vec4( position, 1.0 );
 
   v_texCoord = position;
 
@@ -47,40 +36,272 @@ void main() {
 
 <script id="fragmentShader" type="x-shader/x-fragment">
 
-uniform vec2 resolution;
+uniform vec2 inputResolution;
+uniform vec2 outputResolution;
 
-uniform sampler2D textureFront;
+uniform vec3 targetCameraPosition;
+uniform vec3 targetCameraPoint;
+uniform float cameraFocusLen;
+
+uniform vec3 worldPlanePoint;
+uniform vec3 worldPlaneVector;
+
+uniform sampler2D textureSource;
+
+uniform sampler2D textureWorldPointX;
+uniform sampler2D textureWorldPointY;
+uniform sampler2D textureWorldPointZ;
+
+uniform sampler2D textureTT;
+
+uniform float   frontMaxRadius;
+uniform float    rearMaxRadius;
+uniform float    leftMaxRadius;
+uniform float   rightMaxRadius;
+
+uniform vec2   frontCetroid;
+uniform vec2    rearCetroid;
+uniform vec2    leftCetroid;
+uniform vec2   rightCetroid;
+
+uniform vec4 frontMatrixVec0;
+uniform vec4 frontMatrixVec1;
+uniform vec4 frontMatrixVec2;
+uniform vec4  rearMatrixVec0;
+uniform vec4  rearMatrixVec1;
+uniform vec4  rearMatrixVec2;
+uniform vec4  leftMatrixVec0;
+uniform vec4  leftMatrixVec1;
+uniform vec4  leftMatrixVec2;
+uniform vec4 rightMatrixVec0;
+uniform vec4 rightMatrixVec1;
+uniform vec4 rightMatrixVec2;
 
 uniform float drawPlane;
 
 varying vec3 v_texCoord;
 
+const int MAXPOINTCOUNT=4;
+const float EPS=1e-6;
+
+
+struct CameraMatrix
+{
+  mat4 m;
+  mat4 mt;
+};
+
+struct Ray
+{
+  vec3 point; // start point of the ray 
+  vec3 direct; // the direct of the ray 
+};
+
+struct Plane
+{
+  vec3 point; // point on the plane
+  vec3 normal; // normal vector of the plane
+};
+
+struct IntersectPoints
+{
+  int  count; // count of the points
+  vec3 points0;
+  vec3 points1;
+  vec3 points2;
+  vec3 points3;
+};
+
+IntersectPoints getIntersectRayPlane( Ray ray, Plane plane)
+{
+  IntersectPoints intersectPoints;
+  intersectPoints.count=0;
+
+  float t=(dot(plane.point, plane.normal)-dot(ray.point, plane.normal))/dot(ray.direct,plane.normal);
+  if(t>=0.)
+  {
+    intersectPoints.count=1;
+    intersectPoints.points0=ray.point+ray.direct*t;
+  }
+  return intersectPoints;
+}
+
+mat3 getRotateMatrixByAxe(mat3 m0, mat3 m1)
+{
+  vec3 m00 = vec3(m0[0].x, m0[1].x, m0[2].x);
+  vec3 m01 = vec3(m0[0].y, m0[1].y, m0[2].y);
+  vec3 m02 = vec3(m0[0].z, m0[1].z, m0[2].x);
+
+  vec3 m10 = m1[0];
+  vec3 m11 = m1[1];
+  vec3 m12 = m1[2];
+
+  mat3 R = mat3( 
+                dot( m00, m10 ), dot( m00, m11 ), dot( m00, m12 ), 
+                dot( m01, m10 ), dot( m01, m11 ), dot( m01, m12 ), 
+                dot( m02, m10 ), dot( m02, m11 ), dot( m02, m12 )
+              );
+  return R;
+}
+
+mat3 transpose(mat3 inMatrix) {
+  vec3 i0 = inMatrix[0];
+  vec3 i1 = inMatrix[1];
+  vec3 i2 = inMatrix[2];
+
+  mat3 outMatrix = mat3(
+      vec3(i0.x, i1.x, i2.x),
+      vec3(i0.y, i1.y, i2.y),
+      vec3(i0.z, i1.z, i2.z)
+      );
+  return outMatrix;
+}
+
+CameraMatrix getCameraMatrix(vec3 targetCameraPosition, vec3 targetCameraPoint)
+{
+  CameraMatrix cameraMatrix;
+  vec3 vx0 = vec3( 1., 0., 0.);
+  vec3 vy0 = vec3( 0., 1., 0.);
+  vec3 vz0 = vec3( 0., 0., 1.);
+  vec3 vz1 = normalize(targetCameraPosition-targetCameraPosition);
+  vec3 vx1 = normalize(cross(vec3(0., 1., 0.), vz1));
+  vec3 vy1 = cross(vz1, vx1);
+
+  mat3 R = getRotateMatrixByAxe( mat3(vx0, vy0, vz0), mat3(vx1, vy1, vz1) );
+
+  vec3 Rc = transpose(R)*targetCameraPosition;
+
+  cameraMatrix.m = mat4(
+    vec4(vec3(R[0].x, R[1].x, R[2].x), -Rc.x), 
+    vec4(vec3(R[0].y, R[1].y, R[2].y), -Rc.y), 
+    vec4(vec3(R[0].z, R[1].z, R[2].z), -Rc.z), 
+    vec4(vec3(    0.,     0.,     0.),    1.)  
+    );
+  cameraMatrix.mt = mat4(
+    vec4(R[0], -targetCameraPosition.x),
+    vec4(R[1], -targetCameraPosition.y),
+    vec4(R[2], -targetCameraPosition.y),
+    vec4(vec3(0.),1.)  
+    );
+  return cameraMatrix;
+}
+
+
+
+float vec4tofloat(vec4 v0, float scale)
+{
+  float textureScale = 256.;
+  vec4 v=v0*textureScale;
+  float sign=1.;
+  if(v.r>=10.)
+  {
+    sign=-1.;
+    v.r = 0.;
+  }
+  float a = float(v.r)*65536.+float(v.g)*256.+float(v.b)+float(v.a)/256.;
+  return sign*a/scale;
+}
+
+vec2 getImagePosition( vec3 point3D, vec2 sourceCentroid, float maxRadius, vec4 sourceMatrixVec0, vec4 sourceMatrixVec1, vec4 sourceMatrixVec2, vec2 imageSize) 
+{
+  vec2 point2D;
+  float px = dot(sourceMatrixVec0,vec4(vec3(point3D),1.));
+  float py = dot(sourceMatrixVec1,vec4(vec3(point3D),1.));
+  float pz = dot(sourceMatrixVec2,vec4(vec3(point3D),1.));
+
+
+  point2D = vec2( px/pz, py/pz);
+
+  vec2 sourceDiff = point2D-imageSize/2.;
+
+  float sd = sqrt(dot(sourceDiff, sourceDiff));
+  float td = atan(sd/maxRadius)*maxRadius;
+  float scale = td/sd;
+
+  // if(abs(sd)<EPS)
+  // {
+  //   scale = 0.;
+  // }
+
+  point2D = sourceCentroid+sourceDiff*scale;
+
+  return point2D;
+}
+
+
 void main() {
 
-   // gl_FragColor =vec4(vec3( drawPlane),1.);
+  CameraMatrix cameraMatrix = getCameraMatrix( targetCameraPosition, targetCameraPoint);
 
-  //return ;
+  vec2 imageUV = v_texCoord.xy;
+  imageUV += 1.;
+  imageUV /= 2.;
+
+
+  vec2 imageCoord = imageUV*outputResolution;
+
+  vec4 r0 = vec4(vec3(0.), 1.);
+  vec4 rv = vec4(imageCoord.x-outputResolution.x/2.,imageCoord.y-outputResolution.y/2., cameraFocusLen, 0.);
+//    gl_FragColor = vec4(vec3(imageUV.x, imageUV.y, 0.),1.); return;
+  vec3 wr0 = (r0*cameraMatrix.mt).xyz;
+  vec3 wrv = (rv*cameraMatrix.mt).xyz;
+
+  Ray ray = Ray(wr0, wrv);
+  Plane plane = Plane(worldPlanePoint, worldPlaneVector);
+  IntersectPoints ppts = getIntersectRayPlane( ray, plane);
+  if( ppts.count<=0)
+  {
+    gl_FragColor = vec4(vec3(0.),1.);
+    return;
+  }
+
+  
+
+
 
   if(drawPlane>.5)
   {
 
-    vec2 imageUV = v_texCoord.xy;
 
-    imageUV += 1.;
-    imageUV /= 2.;
+    float world3DPointX = ppts.points0.x;
+    float world3DPointY = ppts.points0.y;
+    float world3DPointZ = ppts.points0.z;
 
-    gl_FragColor = texture2D(textureFront, imageUV);
+    //vec3 point3D = vec3(world3DPointX, world3DPointY, world3DPointZ);
+    vec3 point3D = vec3(world3DPointX, world3DPointX, world3DPointX);
+
+    // float px = dot(frontMatrixVec0,vec4(vec3(point3D),1.));
+    // float py = dot(frontMatrixVec1,vec4(vec3(point3D),1.));
+    // float pz = dot(frontMatrixVec2,vec4(vec3(point3D),1.));
+    // vec2 point2D = vec2( px/pz, py/pz);
+
+   
+    vec2 frontPos = getImagePosition(vec3(world3DPointX, world3DPointY, world3DPointZ), frontCetroid, frontMaxRadius, frontMatrixVec0, frontMatrixVec1, frontMatrixVec2, inputResolution);
+    frontPos= frontPos/inputResolution;
+    if( frontPos.x<0. || frontPos.x>=1. || frontPos.y<0. || frontPos.y>=1.)
+    {
+     gl_FragColor = vec4(vec3(0.),1.);
+      return;
+    }
+    frontPos.y=1.-frontPos.y;
+    frontPos/=2.;
+    frontPos+=vec2(.0,.5);
+    vec4 color = texture2D( textureSource, frontPos );
+
+    //vec4 color = vec4(vec3(0.),1.);
+    //if(point2D.x>367. && point2D.x <368.)
+    //  gl_FragColor = vec4(vec3(1.),1.);
+    //else
+    //  gl_FragColor = vec4(vec3(0.),1.);
+
+    gl_FragColor = color;
 
   }
   else
   {
 
-    vec2 imageUV = v_texCoord.xy;
 
-    imageUV += resolution/2.;
-
-    vec2 vUv = vec2(imageUV.x/resolution.x, imageUV.y/resolution.y);
-    gl_FragColor = texture2D(textureFront, vUv);
+    gl_FragColor = texture2D(textureSource, imageUV);
 
   }
 
@@ -91,7 +312,8 @@ void main() {
 
 <script>
 
-var camera, scene, controls, renderer;
+var camera, scene, renderer;
+var stats;
 
 var material;
 var mesh;
@@ -113,26 +335,21 @@ function init() {
   camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, 1, 1000000 );
   camera.position.z = 400;
 
+  // stats
+  stats = new Stats();
+  stats.domElement.style.position = 'absolute';
+  stats.domElement.style.left = '0px';
+  stats.domElement.style.top = '0px';
+  document.body.appendChild( stats.domElement );
+
 
   // control
-  controls = new THREE.TrackballControls( camera );
-
-  controls.rotateSpeed = 1.0;
-  controls.zoomSpeed = 1.2;
-  controls.panSpeed = 0.8;
-
-  controls.noZoom = false;
-  controls.noPan = false;
-
-  controls.staticMoving = true;
-  controls.dynamicDampingFactor = 0.3;
-
-  controls.keys = [ 65, 83, 68 ];
-
-  controls.addEventListener( 'change', render );
 
   var imageWidth  = 720;
   var imageHeight = 576;
+
+  var outputWidth = 720;
+  var outputHeight= 480;
 
 
   // world
@@ -142,23 +359,54 @@ function init() {
 
   var geometry = new THREE.PlaneGeometry( imageWidth, imageHeight, 1, 1 );
 
-  //var texture = THREE.ImageUtils.loadTexture( 'textures/crate.gif' );
-  // var texture = THREE.ImageUtils.loadTexture( 'imgs/q.jpg');
-  // texture.anisotropy = renderer.getMaxAnisotropy();
-
-  //var material = new THREE.MeshBasicMaterial( { map: texture } );
-  //var material = new THREE.MeshBasicMaterial( { } );
-
-  var textureFront = THREE.ImageUtils.loadTexture( 'imgs/q.jpg');
 
   uniforms = {
-      resolution: { type: "v2", value: new THREE.Vector2(imageWidth, imageHeight) },
+      inputResolution: { type: "v2", value: new THREE.Vector2(imageWidth, imageHeight) },
+      outputResolution: { type: "v2", value: new THREE.Vector2(outputWidth, outputHeight) },
       drawPlane: { type: "f", value:1 },
-      textureFront: { type: "t", value: textureFront}
+
+      targetCameraPosition: { type: "v3", value: new THREE.Vector3(-20000, -25000, 10000)},
+      targetCameraPoint   : { type: "v3", value: new THREE.Vector3(-10000,      0,-35000)},
+      cameraFocusLen: { type: 'f',  value: 341.1732   },
+
+      textureSource: { type: "t", value: THREE.ImageUtils.loadTexture('imgs/imageBig.png') },
+
+      textureWorldPointX: { type: "t", value: THREE.ImageUtils.loadTexture('imgs/world3DPointX.png') },
+      textureWorldPointY: { type: "t", value: THREE.ImageUtils.loadTexture('imgs/world3DPointY.png') },
+      textureWorldPointZ: { type: "t", value: THREE.ImageUtils.loadTexture('imgs/world3DPointZ.png') },
+      textureTT         : { type: "t", value: THREE.ImageUtils.loadTexture('imgs/tt.png'           ) },
+
+      frontMaxRadius: { type: 'f', value: 202.2 },
+       rearMaxRadius: { type: 'f', value: 208   },
+       leftMaxRadius: { type: 'f', value: 213.2 },
+      rightMaxRadius: { type: 'f', value: 204   },
+
+      frontCetroid: { type: 'v2', value: new THREE.Vector2( 394.633218878992 , 293.442200255975  ) },
+      frontCetroid: { type: 'v2', value: new THREE.Vector2( 355.792533974801 , 294.789746974211  ) },
+      frontCetroid: { type: 'v2', value: new THREE.Vector2( 360.97505420212  , 266.62506959439   ) },
+      frontCetroid: { type: 'v2', value: new THREE.Vector2( 347.23003594147  , 280.260299827151  ) },
+
+
+      frontMatrixVec0:{type: 'v4', value: new THREE.Vector4(   225.249895280702,         142.546655204943,          334.68359484456,        3545392.89661647)},
+      frontMatrixVec1:{type: 'v4', value: new THREE.Vector4(  -5.58586248448961,         304.363945370959,         151.522920360953,        3717179.07597406)},
+      frontMatrixVec2:{type: 'v4', value: new THREE.Vector4(0.00436069757667872,        0.378485274577318,        0.925597040425679,          9705.278096324)},
+
+
+       rearMatrixVec0:{type: 'v4', value: new THREE.Vector4(   212.865615515824,   -284.57647977326,  224.146511472695,  8377347.81765448)},
+       rearMatrixVec1:{type: 'v4', value: new THREE.Vector4(  -3.81581805445212,  -360.853531048437, -9.33877619524799, -4463128.91456287)},
+       rearMatrixVec2:{type: 'v4', value: new THREE.Vector4(-0.0103954110988926, -0.791638160831286,  0.61090175784961,  21916.4316719075)},
+
+       leftMatrixVec0:{type: 'v4', value: new THREE.Vector4( -141.673226395132,  330.770137599931,   263.422188413343, 8196871.30874001)},
+       leftMatrixVec1:{type: 'v4', value: new THREE.Vector4(  74.7238035296908,  381.082918440884,   -39.225366859139,  4087799.8615125)},
+       leftMatrixVec2:{type: 'v4', value: new THREE.Vector4(-0.538659664803969, 0.842302864365812, 0.0192782311020437, 5048.33549136221)},
+
+      rightMatrixVec0:{type: 'v4', value: new THREE.Vector4(  178.510108003682,  313.419719531498,   -229.504701724321, -3401593.69887749)},
+      rightMatrixVec1:{type: 'v4', value: new THREE.Vector4(  -61.655230496172,  364.428694335921,    22.1875401999086,  5081778.15835737)},
+      rightMatrixVec2:{type: 'v4', value: new THREE.Vector4( 0.517435971070524, 0.855718370191769, 0.00246713571713904,  4460.77443486549)},
+
     };
 
 
-  //setupControls(uniforms);
 
   var material = new THREE.ShaderMaterial( {
       uniforms: uniforms,
@@ -168,59 +416,15 @@ function init() {
 
 
   mesh = new THREE.Mesh( geometry, material );
-  //mesh = new THREE.Mesh( geometry, null );
   scene.add( mesh );
 
   //
-
-
   initGUI(uniforms);
 
   window.addEventListener( 'resize', onWindowResize, false );
 
 }
 
-
-function setupControls(ob) {
-  var gui = new dat.GUI();
-  // var sceneFolder = gui.addFolder('Scene');
-  // var geoController = sceneFolder.add({Geometry:"box"}, 'Geometry', [ 'box', 'sphere', 'torusknot' ] );
-  //geoController.onChange(changeGeometry);
-  var uniformsFolder = gui.addFolder('Uniforms');
-  for(key in ob){
-    if(ob[key].type == 'f'){
-      var controller = uniformsFolder.add(ob[key], 'value').name(key);
-      if(typeof ob[key].min != 'undefined'){
-        controller.min(ob[key].min).name(key);
-      }
-      if(typeof ob[key].max != 'undefined'){
-        controller.max(ob[key].max).name(key);
-      }
-      controller.onChange(function(value){
-          this.object.value = parseFloat(value);
-          });
-    }else if(ob[key].type == 'c'){
-      ob[key].guivalue = [ob[key].value.r * 255, ob[key].value.g * 255, ob[key].value.b * 255];
-      var controller = uniformsFolder.addColor(ob[key], 'guivalue').name(key);
-      controller.onChange(function(value){
-          this.object.value.setRGB(value[0]/255, value[1]/255, value[2]/255);
-          });
-    }
-  }
-  uniformsFolder.open();
-  //var sourceFolder = gui.addFolder('Source');
-  //var butob = {
-  //  'view vertex shader code': function(){
-  //    TINY.box.show({html:'<div style="width: 500px; height: 500px;"><h3 style="margin: 0px; padding-bottom: 5px;">Vertex Shader</h3><pre style="overflow: scroll; height: 470px;">'+document.getElementById('vertexShader').text+'</pre></div>',animate:false,close:false,top:5})
-  //  },
-  //  'view fragment shader code': function(){
-  //    TINY.box.show({html:'<div style="width: 500px; height: 500px;"><h3 style="margin: 0px; padding-bottom: 5px;">Fragment Shader</h3><pre style="overflow: scroll; height: 470px;">'+document.getElementById('fragmentShader').text+'</pre></div>',animate:false,close:false,top:5})
-  //  }
-  //};
-  //sourceFolder.add(butob, 'view vertex shader code');
-  //sourceFolder.add(butob, 'view fragment shader code');
-
-}
 
 function initGUI(ob) {
 
@@ -229,8 +433,6 @@ function initGUI(ob) {
   };
 
   var gui = new dat.GUI();
-
-  //gui.add( API, 'show model' ).onChange( function() { mesh.visible = API[ 'show model' ]; } );
 
   gui.add( API, 'draw at plane' ).onChange( function() {
     var oldValue = ob['drawPlane'].value;
@@ -253,7 +455,6 @@ function onWindowResize() {
 
   renderer.setSize( window.innerWidth, window.innerHeight );
 
-  controls.handleResize();
   render();
 
 }
@@ -267,8 +468,8 @@ function animate() {
  //  mesh.rotation.z += 0.00;
  
    renderer.render( scene, camera );
+  stats.update();
  
-   controls.update();
  }
 
 function render() {
