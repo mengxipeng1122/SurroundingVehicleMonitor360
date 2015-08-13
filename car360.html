@@ -41,7 +41,7 @@ uniform vec2 outputResolution;
 
 uniform vec3 targetCameraPosition;
 uniform vec3 targetCameraPoint;
-uniform float cameraFocusLen;
+uniform float targetCameraFocusLen;
 
 uniform vec3 worldPlanePoint;
 uniform vec3 worldPlaneVector;
@@ -82,7 +82,10 @@ uniform float drawPlane;
 varying vec3 v_texCoord;
 
 const int MAXPOINTCOUNT=4;
-const float EPS=1e-6;
+const float EPS=1e-0;
+
+const vec4 BLACKCOLOR=vec4(vec3(0.),1.);
+const vec4 WHITECOLOR=vec4(vec3(1.),1.);
 
 
 struct CameraMatrix
@@ -130,7 +133,7 @@ mat3 getRotateMatrixByAxe(mat3 m0, mat3 m1)
 {
   vec3 m00 = vec3(m0[0].x, m0[1].x, m0[2].x);
   vec3 m01 = vec3(m0[0].y, m0[1].y, m0[2].y);
-  vec3 m02 = vec3(m0[0].z, m0[1].z, m0[2].x);
+  vec3 m02 = vec3(m0[0].z, m0[1].z, m0[2].z);
 
   vec3 m10 = m1[0];
   vec3 m11 = m1[1];
@@ -163,13 +166,13 @@ CameraMatrix getCameraMatrix(vec3 targetCameraPosition, vec3 targetCameraPoint)
   vec3 vx0 = vec3( 1., 0., 0.);
   vec3 vy0 = vec3( 0., 1., 0.);
   vec3 vz0 = vec3( 0., 0., 1.);
-  vec3 vz1 = normalize(targetCameraPosition-targetCameraPosition);
+  vec3 vz1 = normalize(targetCameraPoint-targetCameraPosition);
   vec3 vx1 = normalize(cross(vec3(0., 1., 0.), vz1));
   vec3 vy1 = cross(vz1, vx1);
 
   mat3 R = getRotateMatrixByAxe( mat3(vx0, vy0, vz0), mat3(vx1, vy1, vz1) );
 
-  vec3 Rc = transpose(R)*targetCameraPosition;
+  vec3 Rc = targetCameraPosition*transpose(R);
 
   cameraMatrix.m = mat4(
     vec4(vec3(R[0].x, R[1].x, R[2].x), -Rc.x), 
@@ -178,9 +181,9 @@ CameraMatrix getCameraMatrix(vec3 targetCameraPosition, vec3 targetCameraPoint)
     vec4(vec3(    0.,     0.,     0.),    1.)  
     );
   cameraMatrix.mt = mat4(
-    vec4(R[0], -targetCameraPosition.x),
-    vec4(R[1], -targetCameraPosition.y),
-    vec4(R[2], -targetCameraPosition.y),
+    vec4(R[0], targetCameraPosition.x),
+    vec4(R[1], targetCameraPosition.y),
+    vec4(R[2], targetCameraPosition.z),
     vec4(vec3(0.),1.)  
     );
   return cameraMatrix;
@@ -231,50 +234,38 @@ vec2 getImagePosition( vec3 point3D, vec2 sourceCentroid, float maxRadius, vec4 
 
 void main() {
 
-  CameraMatrix cameraMatrix = getCameraMatrix( targetCameraPosition, targetCameraPoint);
+  CameraMatrix cameraMatrix;
+  cameraMatrix = getCameraMatrix( targetCameraPosition, targetCameraPoint);
 
   vec2 imageUV = v_texCoord.xy;
+
   imageUV += 1.;
   imageUV /= 2.;
-
-
-  vec2 imageCoord = imageUV*outputResolution;
-
-  vec4 r0 = vec4(vec3(0.), 1.);
-  vec4 rv = vec4(imageCoord.x-outputResolution.x/2.,imageCoord.y-outputResolution.y/2., cameraFocusLen, 0.);
-//    gl_FragColor = vec4(vec3(imageUV.x, imageUV.y, 0.),1.); return;
-  vec3 wr0 = (r0*cameraMatrix.mt).xyz;
-  vec3 wrv = (rv*cameraMatrix.mt).xyz;
-
-  Ray ray = Ray(wr0, wrv);
-  Plane plane = Plane(worldPlanePoint, worldPlaneVector);
-  IntersectPoints ppts = getIntersectRayPlane( ray, plane);
-  if( ppts.count<=0)
-  {
-    gl_FragColor = vec4(vec3(0.),1.);
-    return;
-  }
-
-  
-
-
-
   if(drawPlane>.5)
   {
+    imageUV.y = 1.-imageUV.y;
 
+    vec2 imageCoord = imageUV*outputResolution;
+
+    vec4 r0 = vec4(vec3(0.), 1.);
+    vec4 rv = vec4(imageCoord.x-outputResolution.x/2., imageCoord.y-outputResolution.y/2., targetCameraFocusLen, 0.);
+    vec3 wr0 = (r0*cameraMatrix.mt).xyz;
+    vec3 wrv = (rv*cameraMatrix.mt).xyz;
+
+    Ray ray = Ray(wr0, wrv);
+    Plane plane = Plane(worldPlanePoint, worldPlaneVector);
+    IntersectPoints ppts = getIntersectRayPlane( ray, plane);
+    if( ppts.count<=0)
+    {
+      gl_FragColor = vec4(vec3(0.),1.);
+      return;
+    }
 
     float world3DPointX = ppts.points0.x;
     float world3DPointY = ppts.points0.y;
     float world3DPointZ = ppts.points0.z;
 
-    //vec3 point3D = vec3(world3DPointX, world3DPointY, world3DPointZ);
     vec3 point3D = vec3(world3DPointX, world3DPointX, world3DPointX);
-
-    // float px = dot(frontMatrixVec0,vec4(vec3(point3D),1.));
-    // float py = dot(frontMatrixVec1,vec4(vec3(point3D),1.));
-    // float pz = dot(frontMatrixVec2,vec4(vec3(point3D),1.));
-    // vec2 point2D = vec2( px/pz, py/pz);
-
    
     vec2 frontPos = getImagePosition(vec3(world3DPointX, world3DPointY, world3DPointZ), frontCetroid, frontMaxRadius, frontMatrixVec0, frontMatrixVec1, frontMatrixVec2, inputResolution);
     frontPos= frontPos/inputResolution;
@@ -361,13 +352,17 @@ function init() {
 
 
   uniforms = {
-      inputResolution: { type: "v2", value: new THREE.Vector2(imageWidth, imageHeight) },
+      inputResolution:  { type: "v2", value: new THREE.Vector2(imageWidth, imageHeight) },
       outputResolution: { type: "v2", value: new THREE.Vector2(outputWidth, outputHeight) },
       drawPlane: { type: "f", value:1 },
 
       targetCameraPosition: { type: "v3", value: new THREE.Vector3(-20000, -25000, 10000)},
       targetCameraPoint   : { type: "v3", value: new THREE.Vector3(-10000,      0,-35000)},
-      cameraFocusLen: { type: 'f',  value: 341.1732   },
+      targetCameraFocusLen: { type: 'f',  value: 341.1732   },
+
+
+      worldPlanePoint     : { type: "v3", value: new THREE.Vector3(0, 0, 0)},
+      worldPlaneVector    : { type: "v3", value: new THREE.Vector3(0, 1, 0)},
 
       textureSource: { type: "t", value: THREE.ImageUtils.loadTexture('imgs/imageBig.png') },
 
