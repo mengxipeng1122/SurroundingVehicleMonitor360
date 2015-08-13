@@ -36,6 +36,12 @@ void main() {
 
 <script id="fragmentShader" type="x-shader/x-fragment">
 
+uniform float frontValid;
+uniform float  rearValid;
+uniform float  leftValid;
+uniform float rightValid;
+
+
 uniform vec2 inputResolution;
 uniform vec2 outputResolution;
 
@@ -115,6 +121,12 @@ struct IntersectPoints
   vec3 points3;
 };
 
+struct ImageCoordinate
+{
+  bool valid; //this value indicates whether this image has pix for this position
+  vec2 imageCoord;
+};
+
 IntersectPoints getIntersectRayPlane( Ray ray, Plane plane)
 {
   IntersectPoints intersectPoints;
@@ -189,8 +201,6 @@ CameraMatrix getCameraMatrix(vec3 targetCameraPosition, vec3 targetCameraPoint)
   return cameraMatrix;
 }
 
-
-
 float vec4tofloat(vec4 v0, float scale)
 {
   float textureScale = 256.;
@@ -205,8 +215,9 @@ float vec4tofloat(vec4 v0, float scale)
   return sign*a/scale;
 }
 
-vec2 getImagePosition( vec3 point3D, vec2 sourceCentroid, float maxRadius, vec4 sourceMatrixVec0, vec4 sourceMatrixVec1, vec4 sourceMatrixVec2, vec2 imageSize) 
+ImageCoordinate getImagePosition( vec3 point3D, vec2 sourceCentroid, float maxRadius, vec4 sourceMatrixVec0, vec4 sourceMatrixVec1, vec4 sourceMatrixVec2, vec2 imageSize, float zsign) 
 {
+  ImageCoordinate imageCoordinate;
   vec2 point2D;
   float px = dot(sourceMatrixVec0,vec4(vec3(point3D),1.));
   float py = dot(sourceMatrixVec1,vec4(vec3(point3D),1.));
@@ -221,14 +232,20 @@ vec2 getImagePosition( vec3 point3D, vec2 sourceCentroid, float maxRadius, vec4 
   float td = atan(sd/maxRadius)*maxRadius;
   float scale = td/sd;
 
-  // if(abs(sd)<EPS)
-  // {
-  //   scale = 0.;
-  // }
-
   point2D = sourceCentroid+sourceDiff*scale;
 
-  return point2D;
+  if(pz*zsign>0. && point2D.x>=0. && point2D.x < imageSize.x && point2D.y>=0. && point2D.y < imageSize.y )
+  {
+    imageCoordinate.valid = true;
+    imageCoordinate.imageCoord = point2D/imageSize;
+    imageCoordinate.imageCoord.y = 1.-imageCoordinate.imageCoord.y;
+  }
+  else
+  {
+    imageCoordinate.valid = false;
+  }
+
+  return imageCoordinate;
 }
 
 
@@ -267,25 +284,77 @@ void main() {
 
     vec3 point3D = vec3(world3DPointX, world3DPointX, world3DPointX);
    
-    vec2 frontPos = getImagePosition(vec3(world3DPointX, world3DPointY, world3DPointZ), frontCetroid, frontMaxRadius, frontMatrixVec0, frontMatrixVec1, frontMatrixVec2, inputResolution);
-    frontPos= frontPos/inputResolution;
-    if( frontPos.x<0. || frontPos.x>=1. || frontPos.y<0. || frontPos.y>=1.)
+    float pixCount = 0.;
+    vec3  colorVolume = vec3(0.);
+    ImageCoordinate imageCoordinate;
+    // front 
+    if( frontValid >.5)
     {
-     gl_FragColor = vec4(vec3(0.),1.);
-      return;
+      imageCoordinate  = getImagePosition(vec3(world3DPointX, world3DPointY, world3DPointZ), frontCetroid, frontMaxRadius, frontMatrixVec0, frontMatrixVec1, frontMatrixVec2, inputResolution, 1.);
+      if( imageCoordinate.valid)
+      {
+        pixCount+=1.;
+        vec2 pos = imageCoordinate.imageCoord;
+        pos/=2.;
+        pos+=vec2(.0,.5);
+        vec4 color = texture2D( textureSource, pos );
+        colorVolume+=color.rgb;
+      }
     }
-    frontPos.y=1.-frontPos.y;
-    frontPos/=2.;
-    frontPos+=vec2(.0,.5);
-    vec4 color = texture2D( textureSource, frontPos );
 
-    //vec4 color = vec4(vec3(0.),1.);
-    //if(point2D.x>367. && point2D.x <368.)
-    //  gl_FragColor = vec4(vec3(1.),1.);
-    //else
-    //  gl_FragColor = vec4(vec3(0.),1.);
+    // rear 
+    if(  rearValid >.5)
+    {
+      imageCoordinate  = getImagePosition(vec3(world3DPointX, world3DPointY, world3DPointZ), rearCetroid, rearMaxRadius, rearMatrixVec0, rearMatrixVec1, rearMatrixVec2, inputResolution, -1.);
+      if( imageCoordinate.valid)
+      {
+        pixCount+=1.;
+        vec2 pos = imageCoordinate.imageCoord;
+        pos/=2.;
+        pos+=vec2(.5,.5);
+        vec4 color = texture2D( textureSource, pos );
+        colorVolume+=color.rgb;
+      }
+    }
 
-    gl_FragColor = color;
+    // left
+    if(  leftValid >.5)
+    {
+      imageCoordinate  = getImagePosition(vec3(world3DPointX, world3DPointY, world3DPointZ), leftCetroid, leftMaxRadius, leftMatrixVec0, leftMatrixVec1, leftMatrixVec2, inputResolution, 1.);
+      if( imageCoordinate.valid)
+      {
+        pixCount+=1.;
+        vec2 pos = imageCoordinate.imageCoord;
+        pos/=2.;
+        pos+=vec2(.0,.0);
+        vec4 color = texture2D( textureSource, pos );
+        colorVolume+=color.rgb;
+      }
+    }
+
+    // right
+    if( rightValid >.5)
+    {
+      imageCoordinate  = getImagePosition(vec3(world3DPointX, world3DPointY, world3DPointZ), rightCetroid, rightMaxRadius, rightMatrixVec0, rightMatrixVec1, rightMatrixVec2, inputResolution, 1.);
+      if( imageCoordinate.valid)
+      {
+        pixCount+=1.;
+        vec2 pos = imageCoordinate.imageCoord;
+        pos/=2.;
+        pos+=vec2(.5,.0);
+        vec4 color = texture2D( textureSource, pos );
+        colorVolume+=color.rgb;
+      }
+    }
+
+    if (pixCount>.5)
+    {
+      gl_FragColor = vec4(colorVolume/pixCount,1.);
+    }
+    else
+    {
+      gl_FragColor = BLACKCOLOR;
+    }
 
   }
   else
@@ -310,6 +379,8 @@ var material;
 var mesh;
 
 var uniforms;
+
+var cameraAngel = 0;
 
 init();
 animate();
@@ -354,7 +425,12 @@ function init() {
   uniforms = {
       inputResolution:  { type: "v2", value: new THREE.Vector2(imageWidth, imageHeight) },
       outputResolution: { type: "v2", value: new THREE.Vector2(outputWidth, outputHeight) },
+
       drawPlane: { type: "f", value:1 },
+      frontValid: { type: "f", value:0 },
+       rearValid: { type: "f", value:1 },
+       leftValid: { type: "f", value:0 },
+      rightValid: { type: "f", value:0 },
 
       targetCameraPosition: { type: "v3", value: new THREE.Vector3(-20000, -25000, 10000)},
       targetCameraPoint   : { type: "v3", value: new THREE.Vector3(-10000,      0,-35000)},
@@ -377,9 +453,9 @@ function init() {
       rightMaxRadius: { type: 'f', value: 204   },
 
       frontCetroid: { type: 'v2', value: new THREE.Vector2( 394.633218878992 , 293.442200255975  ) },
-      frontCetroid: { type: 'v2', value: new THREE.Vector2( 355.792533974801 , 294.789746974211  ) },
-      frontCetroid: { type: 'v2', value: new THREE.Vector2( 360.97505420212  , 266.62506959439   ) },
-      frontCetroid: { type: 'v2', value: new THREE.Vector2( 347.23003594147  , 280.260299827151  ) },
+       rearCetroid: { type: 'v2', value: new THREE.Vector2( 355.792533974801 , 294.789746974211  ) },
+       leftCetroid: { type: 'v2', value: new THREE.Vector2( 360.97505420212  , 266.62506959439   ) },
+      rightCetroid: { type: 'v2', value: new THREE.Vector2( 347.23003594147  , 280.260299827151  ) },
 
 
       frontMatrixVec0:{type: 'v4', value: new THREE.Vector4(   225.249895280702,         142.546655204943,          334.68359484456,        3545392.89661647)},
@@ -423,23 +499,24 @@ function init() {
 
 function initGUI(ob) {
 
-  var API = {
-    'draw at plane' : ob['drawPlane'].value >.5
-  };
-
   var gui = new dat.GUI();
 
-  gui.add( API, 'draw at plane' ).onChange( function() {
-    var oldValue = ob['drawPlane'].value;
-    if (oldValue>.5)
-    {
-       ob['drawPlane'].value = 0.;
-    }
-    else
-    {
-       ob['drawPlane'].value = 1.;
-    }
-  } );
+  var API = {
+    'draw at plane' : ob['drawPlane'].value >.5 ,
+
+    'front valid' : ob['frontValid'].value >.5  ,
+    ' rear valid' : ob[ 'rearValid'].value >.5  ,
+    ' left valid' : ob[ 'leftValid'].value >.5  ,
+    'right valid' : ob['rightValid'].value >.5  ,
+  };
+
+
+  gui.add( API, 'draw at plane' ).onChange( function() { ob['drawPlane'].value = 1-ob['drawPlane'].value; } );
+
+  gui.add( API, 'front valid' ).onChange( function() { ob['frontValid'].value = 1-ob['frontValid'].value; } );
+  gui.add( API, ' rear valid' ).onChange( function() { ob[ 'rearValid'].value = 1-ob[ 'rearValid'].value; } );
+  gui.add( API, ' left valid' ).onChange( function() { ob[ 'leftValid'].value = 1-ob[ 'leftValid'].value; } );
+  gui.add( API, 'right valid' ).onChange( function() { ob['rightValid'].value = 1-ob['rightValid'].value; } );
 
 }
 
@@ -461,6 +538,12 @@ function animate() {
  //  mesh.rotation.x += 0.00;
  //  mesh.rotation.y += .01;
  //  mesh.rotation.z += 0.00;
+
+  cameraAngel+=.01;
+
+  uniforms['targetCameraPosition'].value.x=Math.sqrt(5)*10000*Math.cos(cameraAngel);
+  uniforms['targetCameraPosition'].value.z=Math.sqrt(5)*10000*Math.sin(cameraAngel);
+    
  
    renderer.render( scene, camera );
   stats.update();
