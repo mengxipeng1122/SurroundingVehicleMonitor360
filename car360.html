@@ -9,13 +9,23 @@ margin: 0px;
         background-color: #000000;
 overflow: hidden;
 }
+
+body h1{
+  color:#363F45;
+  font-family:Arial, Helvetica, sans-serif;
+  font-size:3em;
+}
+
 </style>
 </head>
 <body>
 
+
 <script src="js/three.min.js"></script>
+<script src="js/jquery-1.7.1.min.js"></script>
 <script src="js/dat.gui.min.js"></script>
 <script src="js/stats.min.js"></script>
+<script src="js/Detector.js"></script>
 
 <script id="vertexShader" type="x-shader/x-vertex">
 
@@ -248,6 +258,10 @@ ImageCoordinate getImagePosition( vec3 point3D, vec2 sourceCentroid, float maxRa
   return imageCoordinate;
 }
 
+void calcuateLight( out vec3 p, in vec2 p0)
+{
+  p=vec3(p0, 1.);
+}
 
 void main() {
 
@@ -380,17 +394,49 @@ var mesh;
 
 var uniforms;
 
+var loading=true;
+
 var cameraAngel = 0;
 
-init();
-animate();
+var sourceBigImage;
 
-function init() {
+init0();
+
+function init0() {
+  console.log(' lodding begin ' );
+
+  sourceBigImage = THREE.ImageUtils.loadTexture('imgs/imageBig.png');
+  console.log(' lodding end ' );
+
+
+  THREE.DefaultLoadingManager.onProgress = function ( item, loaded, total ) {
+        console.log( item, loaded, total );
+        if(loaded == total)
+        {
+          var div = document.getElementById('loading');
+          if (div) {
+                div.parentNode.removeChild(div);
+          }
+
+          loading=false;
+          init();
+          animate();
+        }
+  };
+}
+
+function init(){
+
+
+
 
   renderer = new THREE.WebGLRenderer();
   renderer.setPixelRatio( window.devicePixelRatio );
   renderer.setSize( window.innerWidth, window.innerHeight );
   document.body.appendChild( renderer.domElement );
+
+
+
 
   //camera 
 
@@ -417,7 +463,6 @@ function init() {
   // world
 
   scene = new THREE.Scene();
-  // scene.matrixAutoUpdate=false;
 
   var geometry = new THREE.PlaneGeometry( imageWidth, imageHeight, 1, 1 );
 
@@ -426,11 +471,11 @@ function init() {
       inputResolution:  { type: "v2", value: new THREE.Vector2(imageWidth, imageHeight) },
       outputResolution: { type: "v2", value: new THREE.Vector2(outputWidth, outputHeight) },
 
-      drawPlane: { type: "f", value:1 },
-      frontValid: { type: "f", value:0 },
+       drawPlane: { type: "f", value:1 },
+      frontValid: { type: "f", value:1 },
        rearValid: { type: "f", value:1 },
-       leftValid: { type: "f", value:0 },
-      rightValid: { type: "f", value:0 },
+       leftValid: { type: "f", value:1 },
+      rightValid: { type: "f", value:1 },
 
       targetCameraPosition: { type: "v3", value: new THREE.Vector3(-20000, -25000, 10000)},
       targetCameraPoint   : { type: "v3", value: new THREE.Vector3(-10000,      0,-35000)},
@@ -440,40 +485,41 @@ function init() {
       worldPlanePoint     : { type: "v3", value: new THREE.Vector3(0, 0, 0)},
       worldPlaneVector    : { type: "v3", value: new THREE.Vector3(0, 1, 0)},
 
-      textureSource: { type: "t", value: THREE.ImageUtils.loadTexture('imgs/imageBig.png') },
+      textureSource: { type: "t", value: sourceBigImage},
 
-      textureWorldPointX: { type: "t", value: THREE.ImageUtils.loadTexture('imgs/world3DPointX.png') },
-      textureWorldPointY: { type: "t", value: THREE.ImageUtils.loadTexture('imgs/world3DPointY.png') },
-      textureWorldPointZ: { type: "t", value: THREE.ImageUtils.loadTexture('imgs/world3DPointZ.png') },
-      textureTT         : { type: "t", value: THREE.ImageUtils.loadTexture('imgs/tt.png'           ) },
+
+      // textureWorldPointX: { type: "t", value: THREE.ImageUtils.loadTexture('imgs/world3DPointX.png') },
+      // textureWorldPointY: { type: "t", value: THREE.ImageUtils.loadTexture('imgs/world3DPointY.png') },
+      // textureWorldPointZ: { type: "t", value: THREE.ImageUtils.loadTexture('imgs/world3DPointZ.png') },
+      // textureTT         : { type: "t", value: THREE.ImageUtils.loadTexture('imgs/tt.png'           ) },
 
       frontMaxRadius: { type: 'f', value: 202.2 },
        rearMaxRadius: { type: 'f', value: 208   },
        leftMaxRadius: { type: 'f', value: 213.2 },
       rightMaxRadius: { type: 'f', value: 204   },
 
-      frontCetroid: { type: 'v2', value: new THREE.Vector2( 394.633218878992 , 293.442200255975  ) },
-       rearCetroid: { type: 'v2', value: new THREE.Vector2( 355.792533974801 , 294.789746974211  ) },
-       leftCetroid: { type: 'v2', value: new THREE.Vector2( 360.97505420212  , 266.62506959439   ) },
-      rightCetroid: { type: 'v2', value: new THREE.Vector2( 347.23003594147  , 280.260299827151  ) },
+      frontCetroid: { type: "v2", value: new THREE.Vector2(       394.63321888 ,       293.44220026  ) }, 
+      rearCetroid: { type: "v2", value: new THREE.Vector2(       355.79253397 ,       294.78974697  ) }, 
+      leftCetroid: { type: "v2", value: new THREE.Vector2(       360.97505420 ,       266.62506959  ) }, 
+      rightCetroid: { type: "v2", value: new THREE.Vector2(       347.23003594 ,       280.26029983  ) }, 
+
+      frontMatrixVec0:{type: "v4", value: new THREE.Vector4(      257.19585822,        87.43320690,       326.84292391,   3114364.04886467)},
+      frontMatrixVec1:{type: "v4", value: new THREE.Vector4(       19.31716670,       292.19591761,       164.76435154,   3719472.77985118)},
+      frontMatrixVec2:{type: "v4", value: new THREE.Vector4(        0.09324355,         0.29932670,         0.94958368,      9310.65902100)},
+
+      rearMatrixVec0:{type: "v4", value: new THREE.Vector4(      212.86561552,      -284.57647977,       224.14651147,   8377347.81765448)},
+      rearMatrixVec1:{type: "v4", value: new THREE.Vector4(       -3.81581805,      -360.85353105,        -9.33877620,  -4463128.91456287)},
+      rearMatrixVec2:{type: "v4", value: new THREE.Vector4(       -0.01039541,        -0.79163816,         0.61090176,     21916.43167191)},
+
+      leftMatrixVec0:{type: "v4", value: new THREE.Vector4(     -141.67322640,       330.77013760,       263.42218841,   8196871.30874001)},
+      leftMatrixVec1:{type: "v4", value: new THREE.Vector4(       74.72380353,       381.08291844,       -39.22536686,   4087799.86151250)},
+      leftMatrixVec2:{type: "v4", value: new THREE.Vector4(       -0.53865966,         0.84230286,         0.01927823,      5048.33549136)},
+
+      rightMatrixVec0:{type: "v4", value: new THREE.Vector4(      178.51010800,       313.41971953,      -229.50470172,  -3401593.69887749)},
+      rightMatrixVec1:{type: "v4", value: new THREE.Vector4(      -61.65523050,       364.42869434,        22.18754020,   5081778.15835737)},
+      rightMatrixVec2:{type: "v4", value: new THREE.Vector4(        0.51743597,         0.85571837,         0.00246714,      4460.77443487)},
 
 
-      frontMatrixVec0:{type: 'v4', value: new THREE.Vector4(   225.249895280702,         142.546655204943,          334.68359484456,        3545392.89661647)},
-      frontMatrixVec1:{type: 'v4', value: new THREE.Vector4(  -5.58586248448961,         304.363945370959,         151.522920360953,        3717179.07597406)},
-      frontMatrixVec2:{type: 'v4', value: new THREE.Vector4(0.00436069757667872,        0.378485274577318,        0.925597040425679,          9705.278096324)},
-
-
-       rearMatrixVec0:{type: 'v4', value: new THREE.Vector4(   212.865615515824,   -284.57647977326,  224.146511472695,  8377347.81765448)},
-       rearMatrixVec1:{type: 'v4', value: new THREE.Vector4(  -3.81581805445212,  -360.853531048437, -9.33877619524799, -4463128.91456287)},
-       rearMatrixVec2:{type: 'v4', value: new THREE.Vector4(-0.0103954110988926, -0.791638160831286,  0.61090175784961,  21916.4316719075)},
-
-       leftMatrixVec0:{type: 'v4', value: new THREE.Vector4( -141.673226395132,  330.770137599931,   263.422188413343, 8196871.30874001)},
-       leftMatrixVec1:{type: 'v4', value: new THREE.Vector4(  74.7238035296908,  381.082918440884,   -39.225366859139,  4087799.8615125)},
-       leftMatrixVec2:{type: 'v4', value: new THREE.Vector4(-0.538659664803969, 0.842302864365812, 0.0192782311020437, 5048.33549136221)},
-
-      rightMatrixVec0:{type: 'v4', value: new THREE.Vector4(  178.510108003682,  313.419719531498,   -229.504701724321, -3401593.69887749)},
-      rightMatrixVec1:{type: 'v4', value: new THREE.Vector4(  -61.655230496172,  364.428694335921,    22.1875401999086,  5081778.15835737)},
-      rightMatrixVec2:{type: 'v4', value: new THREE.Vector4( 0.517435971070524, 0.855718370191769, 0.00246713571713904,  4460.77443486549)},
 
     };
 
@@ -493,6 +539,7 @@ function init() {
   initGUI(uniforms);
 
   window.addEventListener( 'resize', onWindowResize, false );
+
 
 }
 
@@ -532,23 +579,27 @@ function onWindowResize() {
 }
 
 function animate() {
- 
-     requestAnimationFrame( animate );
- 
- //  mesh.rotation.x += 0.00;
- //  mesh.rotation.y += .01;
- //  mesh.rotation.z += 0.00;
+
+  requestAnimationFrame( animate );
 
   cameraAngel+=.01;
+  // change the camera angel
 
-  uniforms['targetCameraPosition'].value.x=Math.sqrt(5)*10000*Math.cos(cameraAngel);
-  uniforms['targetCameraPosition'].value.z=Math.sqrt(5)*10000*Math.sin(cameraAngel);
-    
- 
-   renderer.render( scene, camera );
+  var rotateAngle=46097.7222864644;
+
+  if(uniforms)
+  {
+
+  uniforms['targetCameraPosition'].value.x=uniforms['targetCameraPoint'].value.x+rotateAngle*Math.cos(cameraAngel);
+  uniforms['targetCameraPosition'].value.z=uniforms['targetCameraPoint'].value.z+rotateAngle*Math.sin(cameraAngel);
+  }
+
+  if(renderer)
+  renderer.render( scene, camera );
+  if(stats)
   stats.update();
- 
- }
+
+}
 
 function render() {
 
@@ -557,6 +608,12 @@ function render() {
 }
 
 </script>
+
+<div id='loading'>
+<h1>
+loading...
+</h1>
+</div>
 
 </body>
 </html>
